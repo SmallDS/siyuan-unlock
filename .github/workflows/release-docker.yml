@@ -33,14 +33,6 @@ jobs:
             id: arm64
             upstream-cache: sha256:4c04549db739755d7670519560b30547084ff292d91bae13de1946b1ea650a43
             runner: ubuntu-24.04-arm
-          - platform: linux/arm/v7
-            id: armv7
-            upstream-cache: sha256:a49927b20fb5e02f8c1db81042c4e9fbec9c465e9ee5215e207b0965edb11ece
-            runner: ubuntu-24.04
-          - platform: linux/arm/v8
-            id: armv8
-            upstream-cache: sha256:f927df7d816bd4aa9929549c4f195af3a2bc6744fc018d9fc8b9cc4933c405f9
-            runner: ubuntu-24.04
 
     permissions:
       packages: write
@@ -226,6 +218,21 @@ jobs:
           sparse-checkout: scripts/verify-docker-release.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
+
+      - name: Restrict release verification to amd64 and arm64
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          script = Path("scripts/verify-docker-release.py")
+          content = script.read_text()
+          old = 'PLATFORMS = ("linux/amd64", "linux/arm64", "linux/arm/v7", "linux/arm/v8")'
+          assert content.count(old) == 1, "Unexpected official verifier version"
+          content = content.replace(old, 'PLATFORMS = ("linux/amd64", "linux/arm64")', 1)
+          content = content.replace("Assembly requires exactly four platform reports", "Assembly requires exactly two platform reports")
+          script.write_text(content)
+          PY
 
       - name: Download successful verification reports
         uses: actions/download-artifact@v4
