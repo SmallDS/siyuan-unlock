@@ -49,7 +49,7 @@ jobs:
             gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --target master --title "$VERSION" --notes "Fork build from upstream SiYuan $VERSION"
           fi
 
-      - name: Dispatch desktop, Android and iOS builds
+      - name: Dispatch desktop, Android, iOS and GHCR builds
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.version }}
@@ -59,3 +59,4 @@ jobs:
           gh workflow run desktop-release.yml --repo "$GITHUB_REPOSITORY" --ref master -f version="$VERSION" -f packageManager="$PACKAGE_MANAGER"
           gh workflow run release-android.yml --repo "$GITHUB_REPOSITORY" --ref master -f version="$VERSION" -f packageManager="$PACKAGE_MANAGER"
           gh workflow run release-ios.yml --repo "$GITHUB_REPOSITORY" --ref master -f version="$VERSION" -f packageManager="$PACKAGE_MANAGER"
+          gh workflow run release-docker.yml --repo "$GITHUB_REPOSITORY" --ref master -f version="$VERSION"
