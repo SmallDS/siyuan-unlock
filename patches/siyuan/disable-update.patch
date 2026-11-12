@@ -47,7 +47,7 @@ index 3a9fd93..535e449 100644
 -	githubReleasesURL            = "https://api.github.com/repos/siyuan-note/siyuan/releases?per_page=100"
 -	githubReleaseURLPrefix       = "https://github.com/siyuan-note/siyuan/releases/tag/v"
 +	githubReleasesURL            = "https://api.github.com/repos/appdev/siyuan-unlock/releases?per_page=100"
-+	githubReleaseURLPrefix       = "https://github.com/appdev/siyuan-unlock/releases/tag/v"
++	githubReleaseURLPrefix       = "https://github.com/SmallDS/siyuan-unlock/releases/tag/v"
  	githubAPIReleaseCacheSeconds = int64(6 * 60 * 60)
  	maxChecksumManifestSize      = int64(1024 * 1024)
  )
