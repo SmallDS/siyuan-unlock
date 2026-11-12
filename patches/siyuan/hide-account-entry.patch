@@ -3,12 +3,12 @@ index 7cebed7..8e5756c 100644
 --- a/app/src/config/tabs/syncTab.ts
 +++ b/app/src/config/tabs/syncTab.ts
 @@ -1,6 +1,5 @@
- import {openInputDialog} from "../../dialog/inputDialog";
+ import {mobileInputDialog} from "../../dialog/mobileInputDialog";
+ import {mobileConfirmDialog} from "../../dialog/mobileConfirmDialog";
  import type {SettingTabBuilder} from "../setting/builder";
 -import {registerAccountGroup} from "./accountUi";
  import {Constants} from "../../constants";
- import {fetchPost} from "../../util/fetch";
- import {confirmDialog} from "../../dialog/confirmDialog";
+ import {fetchPost, fetchSyncPost} from "../../util/fetch";
 @@ -342,7 +341,6 @@ const mountRepoKey = (root: HTMLElement) => {
  };
  
