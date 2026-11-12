@@ -1,8 +1,9 @@
 name: Upload to AUR
 
+# External AUR publishing is disabled in this fork.
+# This workflow is retained for reference only; its upstream-only guard remains in place.
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
 
 jobs:
   build:
