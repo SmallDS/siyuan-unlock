@@ -1,0 +1,161 @@
+name: Publish existing verified amd64 and arm64 GHCR images
+
+# One-time recovery for the two successful platforms of run 43145913111.
+# Future releases use release-docker.yml, now limited to these two architectures.
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/publish-ghcr-completed-arches.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+  packages: write
+
+concurrency:
+  group: publish-ghcr-existing-v3.8.10
+  cancel-in-progress: false
+
+env:
+  SOURCE_RUN_ID: "43145913111"
+  SOURCE_RUN_SHA: "16d25459fbdaee70b7c35a3b443fd5d10f8e1850"
+  VERSION: "v3.8.10"
+  DOCKER_CONFIGURATION_COMMIT: "a5ed54310cc2b8daf2fb39e31cd25e54d57f7a43"
+  IMAGE: ghcr.io/smallds/siyuan-unlock
+
+jobs:
+  publish:
+    name: Cancel old 4-arch run and publish verified 2-arch manifest
+    if: github.repository == 'SmallDS/siyuan-unlock'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Verify and cancel obsolete four-platform run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
+          test "$(jq -r '.head_repository.full_name' <<< "$run_json")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r '.head_sha' <<< "$run_json")" = "$SOURCE_RUN_SHA"
+          test "$(jq -r '.path' <<< "$run_json")" = ".github/workflows/release-docker.yml"
+          status="$(jq -r '.status' <<< "$run_json")"
+          if [[ "$status" != "completed" ]]; then
+            echo "Cancelling original 4-arch run $SOURCE_RUN_ID"
+            gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/cancel"
+            for attempt in $(seq 1 40); do
+              status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" --jq .status)"
+              if [[ "$status" == "completed" ]]; then break; fi
+              sleep 5
+            done
+            test "$status" = "completed" || { echo "::error::Original run has not stopped"; exit 1; }
+          fi
+          echo "Source run is $status; successful platform artifacts remain available."
+
+      - name: Download verified amd64 report from original run
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 43145913111
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: docker-verification-amd64
+          path: ${{ runner.temp }}/platform-reports/amd64
+
+      - name: Download verified arm64 report from original run
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 43145913111
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: docker-verification-arm64
+          path: ${{ runner.temp }}/platform-reports/arm64
+
+      - name: Verify report provenance
+        id: provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / "platform-reports"
+          commit = None
+          for arch in ("amd64", "arm64"):
+              data = json.loads((root / arch / "report.json").read_text())
+              assert data["status"] == "passed", f"{arch}: verification did not pass"
+              assert data["version"] == "3.8.10"
+              assert data["configuration_commit"] == os.environ["DOCKER_CONFIGURATION_COMMIT"]
+              assert str(data["run_id"]) == os.environ["SOURCE_RUN_ID"]
+              assert data["image"].startswith(os.environ["IMAGE"] + "@sha256:")
+              assert re.fullmatch(r"[0-9a-f]{40}", data["source_commit"])
+              assert len(data["platforms"]) == 1 and data["platforms"][0]["platform"] == "linux/" + arch
+              if commit is None:
+                  commit = data["source_commit"]
+              assert data["source_commit"] == commit, "Mixed source commits"
+          with open(os.environ["GITHUB_OUTPUT"], "a") as outputs:
+              outputs.write(f"source_commit={commit}\n")
+          PY
+
+      - name: Checkout verified Docker release script
+        uses: actions/checkout@v4
+        with:
+          repository: siyuan-note/siyuan
+          ref: ${{ env.DOCKER_CONFIGURATION_COMMIT }}
+          sparse-checkout: scripts/verify-docker-release.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Restrict official release verifier to amd64 and arm64
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          script = Path("scripts/verify-docker-release.py")
+          content = script.read_text()
+          old = 'PLATFORMS = ("linux/amd64", "linux/arm64", "linux/arm/v7", "linux/arm/v8")'
+          assert content.count(old) == 1, "Unexpected official verifier version"
+          content = content.replace(old, 'PLATFORMS = ("linux/amd64", "linux/arm64")', 1)
+          content = content.replace("Assembly requires exactly four platform reports", "Assembly requires exactly two platform reports")
+          script.write_text(content)
+          PY
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assemble verified amd64 and arm64 images and publish tags
+        shell: bash
+        env:
+          SOURCE_COMMIT: ${{ steps.provenance.outputs.source_commit }}
+        run: |
+          set -euo pipefail
+          python3 scripts/verify-docker-release.py assemble \
+            --repository "$IMAGE" \
+            --candidate-tag "build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-verified" \
+            --version "${VERSION#v}" \
+            --source-commit "$SOURCE_COMMIT" \
+            --configuration-commit "$DOCKER_CONFIGURATION_COMMIT" \
+            --run-id "$SOURCE_RUN_ID" \
+            --reports "$RUNNER_TEMP/platform-reports" \
+            --report "$RUNNER_TEMP/docker-dualarch-release.json"
+          release_image="$(jq -er .image "$RUNNER_TEMP/docker-dualarch-release.json")"
+          python3 scripts/verify-docker-release.py promote \
+            --image "$release_image" --version "${VERSION#v}" \
+            --report "$RUNNER_TEMP/docker-dualarch-release.json"
+          echo "Published $IMAGE:$VERSION and $IMAGE:latest"
+
+      - name: Save publication verification
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ghcr-dualarch-publication
+          path: ${{ runner.temp }}/docker-dualarch-release.json
+          if-no-files-found: ignore
